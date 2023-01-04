@@ -15,7 +15,7 @@ args = vars(ap.parse_args())
 # initialize the initial learning rate, number of epochs to train
 # for, and batch size
 INIT_LR = 1e-3
-EPOCHS = 10
+EPOCHS = 20
 BS = 128
 # grab the MNIST dataset
 print("[INFO] accessing MNIST...")

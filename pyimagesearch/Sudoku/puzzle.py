@@ -6,8 +6,8 @@ import imutils
 import cv2
 
 
-def find_puzzle(image, debug=False):
-    # convert the image to grayscale and blur it slightly
+def find_puzzle(image: np.array, debug: bool = False):
+    # Conversion de l'image en échelle de gris
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (7, 7), 3)
     # apply adaptive thresholding and then invert the threshold map
