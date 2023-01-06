@@ -1,109 +1,138 @@
-# import the necessary packages
-from imutils.perspective import four_point_transform
-from skimage.segmentation import clear_border
 import numpy as np
-import imutils
 import cv2
+from tensorflow.keras.preprocessing.image import img_to_array
+
+from pyimagesearch.utilities.transformation_extract_digit import threshold_and_clear_border, get_mask, \
+    get_filled_percentage
+from pyimagesearch.utilities.transformation_find_puzzle import threshold_and_blur, find_contours, find_puzzle_cont, \
+    resize_to_grid
 
 
-def find_puzzle(image: np.array, debug: bool = False):
+def find_puzzle(image: np.array, debug: bool = False) -> tuple:
+    # sourcery skip: raise-specific-error
+    """
+    Trouver la grille de Sudoku dans une image.
+    :param image: Image de Sudoku.
+    :param debug: Paramètre booléen pour activer la visualisation de chaque étape de la chaîne de traitement
+    (Utile pour le débogage)
+    :return: tuple (image originale avec la grille de Sudoku entourée, image en noir et blanc de la grille de Sudoku)
+    """
     # Conversion de l'image en échelle de gris
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (7, 7), 3)
-    # appliquer un seuillage adaptatif, puis inverser la carte de seuil
-    thresh = cv2.adaptiveThreshold(blurred, 255,
-                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    thresh = cv2.bitwise_not(thresh)
-    # vérifier si nous visualisons chaque étape de l'image
-    # pipeline de traitement (dans ce cas, seuillage)
+    gray, blurred, thresh = threshold_and_blur(image)
+
+    # Debuggage du seuillage
     if debug:
         cv2.imshow("Puzzle Thresh", thresh)
         cv2.waitKey(0)
 
     # trouver des contours dans l'image seuillée et les trier par taille dans l'ordre décroissant
-    cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-                            cv2.CHAIN_APPROX_SIMPLE)
-    cnts = imutils.grab_contours(cnts)
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-    # initialiser un contour qui correspond au contour du puzzle
-    puzzleCnt = None
-    # boucle sur les contours
-    for c in cnts:
-        # approximer le contour
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        # si notre contour approximatif a quatre points,
-        # alors nous pouvons supposer que nous avons trouvé le contour du puzzle
-        if len(approx) == 4:
-            puzzleCnt = approx
-            break
-    # si le contour du puzzle est vide, alors notre script n'a pas pu trouver le contour du puzzle Sudoku donc générer
-    # une erreur
+    cnts: list[np.array] = find_contours(thresh)
+
+    # trouver le contour de la grille de Sudoku
+    puzzleCnt: np.array = find_puzzle_cont(cnts)
+
+    # Erreur en cas d'absence de contour
     if puzzleCnt is None:
         raise Exception(("Could not find Sudoku puzzle outline. "
                          "Try debugging your thresholding and contour steps."))
-    # vérifier si nous visualisons le contour du puzzle Sudoku détecté
+
+    # Vérification de l'exactitude du contour
     if debug:
-        # dessinez le contour du puzzle sur l'image, puis affichez-le sur notre
-        # écran à des fins de visualisation/débogage
         output = image.copy()
         cv2.drawContours(output, [puzzleCnt], -1, (0, 255, 0), 2)
         cv2.imshow("Puzzle Outline", output)
         cv2.waitKey(0)
-    # appliquez une transformation de perspective à quatre points à la fois à l'image d'origine
-    # et à l'image en niveaux de gris pour obtenir une vue plongeante du puzzle de haut en bas
-    puzzle = four_point_transform(image, puzzleCnt.reshape(4, 2))
-    warped = four_point_transform(gray, puzzleCnt.reshape(4, 2))
-    # vérifier si nous visualisons la transformation de perspective
+
+    # appliquez une transformation de perspective pour recadrer l'image de la grille de Sudoku et l'image
+    # en noir et blanc
+    puzzle, puzzle_gray = resize_to_grid(image, gray, puzzleCnt)
+
+    # vérifier si nous visualisons l'image recadrée
     if debug:
         # afficher l'image de sortie déformée (encore une fois, à des fins de débogage)
         cv2.imshow("Puzzle Transform", puzzle)
         cv2.waitKey(0)
-    # renvoie un 2-tuple de puzzle en RVB et en niveaux de gris
-    return puzzle, warped
+
+    return puzzle, puzzle_gray
 
 
-def extract_digit(cell, debug=False):
+def extract_digit(cell: np.array, debug: bool = False) -> np.array:
     """
-    For a g
+    For a given cell, extract the digit (if one exists) from the cell.
     :param cell:
     :param debug:
     :return:
     """
-    # appliquer un seuillage automatique à la cellule, puis effacer toutes les bordures connectées
-    # qui touchent la bordure de la cellule
-    thresh = cv2.threshold(cell, 0, 255,
-                           cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-    thresh = clear_border(thresh)
-    # vérifier si nous visualisons l'étape de seuillage cellulaire
+    # Seuillage et suppression des bordures de la case
+    thresh: np.array = threshold_and_clear_border(cell)
+
+    # Debuggage de l'étape de seuillage
     if debug:
         cv2.imshow("Cell Thresh", thresh)
         cv2.waitKey(0)
+
     # trouver les contours dans la cellule seuillée
-    cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-                            cv2.CHAIN_APPROX_SIMPLE)
-    cnts = imutils.grab_contours(cnts)
+    cnts: list[np.array] = find_contours(thresh.copy())
+
     # si aucun contour n'a été trouvé, il s'agit d'une cellule vide
-    if len(cnts) == 0:
+    if not cnts:
         return None
-    # sinon, trouvez le plus grand contour dans la cellule et
-    # créez un masque pour le contour
-    c = max(cnts, key=cv2.contourArea)
-    mask = np.zeros(thresh.shape, dtype="uint8")
-    cv2.drawContours(mask, [c], -1, 255, -1)
-    # calculer le pourcentage de pixels masqués par rapport à
-    # la surface totale de l'image
-    (h, w) = thresh.shape
-    percentFilled = cv2.countNonZero(mask) / float(w * h)
-    # si moins de 3 % du masque est rempli, nous examinons le bruit et
-    # pouvons ignorer le contour en toute sécurité
+
+    # Trouver le contour avec la plus grande surface et l'appliquer un masque
+    mask: np.array = get_mask(cnts, thresh.shape)
+
+    # calculer le pourcentage de pixels masqués par rapport à la surface totale de l'image
+    percentFilled: float = get_filled_percentage(thresh, mask)
+
+    # si moins de 3% du masque est rempli, nous allons considérer qu'il n'y a que du bruit
     if percentFilled < 0.03:
         return None
     # appliquer le masque à la cellule seuillée
-    digit = cv2.bitwise_and(thresh, thresh, mask=mask)
+    digit: np.array = cv2.bitwise_and(thresh, thresh, mask=mask)
+
     # vérifier si nous devons visualiser l'étape de masquage
     if debug:
         cv2.imshow("Digit", digit)
         cv2.waitKey(0)
-    # renvoie le chiffre à la fonction appelante
     return digit
+
+
+def find_cell_location(warped: np.array, model, debug: bool = False):
+    board = np.zeros((9, 9), dtype="int")
+    stepX = warped.shape[1] // 9
+    stepY = warped.shape[0] // 9
+    # initialize a list to store the (x, y)-coordinates of each cell
+    # location
+    cellLocs = []
+
+    for y in range(9):
+        # initialize the current list of cell locations
+        row = []
+        startY = y * stepY
+        endY = (y + 1) * stepY
+        for x in range(9):
+            # compute the starting and ending (x, y)-coordinates of the
+            # current cell
+            startX = x * stepX
+            endX = (x + 1) * stepX
+            # add the (x, y)-coordinates to our cell locations list
+            row.append((startX, startY, endX, endY))
+            # crop the cell from the warped transform image and then
+            # extract the digit from the cell
+            cell = warped[startY:endY, startX:endX]
+            digit = extract_digit(cell, debug=debug > 0)
+            # verify that the digit is not empty
+            if digit is not None:
+                # resize the cell to 28x28 pixels and then prepare the
+                # cell for classification
+                roi = cv2.resize(digit, (28, 28))
+                roi = roi.astype("float") / 255.0
+                roi = img_to_array(roi)
+                roi = np.expand_dims(roi, axis=0)
+                # classify the digit and update the Sudoku board with the
+                # prediction
+                pred = model.predict(roi).argmax(axis=1)[0]
+                board[y, x] = pred
+        # add the row to our cell locations
+        cellLocs.append(row)
+    return cellLocs, board
