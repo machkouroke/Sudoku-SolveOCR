@@ -1,21 +1,18 @@
 import copy as cp
 
 
-# verifier qu'un chiffre n'existe pas dans une ligne
 def notInLine(grille, i, k):
+    """Verifier qu'un chiffre n'existe pas dans une ligne"""
     return all(grille[i][j] != k for j in range(9))
 
 
-# verifier qu'un chiffre n'existe pas dans une colonne
 def notInColumn(grille, j, k):
-    for i in range(9):
-        if grille[i][j] == k:
-            return False
-    return True
+    """Verifier qu'un chiffre n'existe pas dans une colonne"""
+    return all(grille[i][j] != k for i in range(9))
 
 
-# verifier qu'un chiffre n'existe pas dans un bloc 3*3
 def notInBloc(grille, i, j, k):
+    """Verifier qu'un chiffre n'existe pas dans un bloc 3*3"""
     _i = i - (i % 3)
     _j = j - (j % 3)
     for i in range(_i, _i + 3):
@@ -25,16 +22,16 @@ def notInBloc(grille, i, j, k):
     return True
 
 
-# Validation de la grille
 def isValid(grille, position):
+    """Validation de la grille"""
     if position == 9 * 9:
         return True
 
-    # on recupere les coordonnees de la case
+    # on récupère les coordonnées de la case
     i = position // 9
     j = position % 9
 
-    # si la case n'est pas vide, on passe à la suivante(appel recursif)
+    # si la case n'est pas vide, on passe à la suivante (appel recursif)
     if grille[i][j] != 0:
         return isValid(grille, position + 1)
 
@@ -53,4 +50,4 @@ def isValid(grille, position):
 
 def solver(grille):
     answer_grille = cp.deepcopy(grille)
-    return answer_grille if isValid(answer_grille, 0) else "no"
+    return answer_grille if isValid(answer_grille, 0) else False
